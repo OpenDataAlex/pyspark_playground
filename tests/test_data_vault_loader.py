@@ -18,7 +18,6 @@ from data_vault_loader import DataVaultLoader
 
 class DataVaultLoaderTests(unittest.TestCase):
     # TODO:  Write unit test for validating audit field values.
-    # TODO:  Write unit test for validating uuid generator.
 
     @classmethod
     def setUpClass(cls):
@@ -77,7 +76,7 @@ class DataVaultLoaderTests(unittest.TestCase):
 
         given_result = self.sc.createDataFrame(given_result)
 
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(System) as context:
 
             DataVaultLoader().audit_field_manager(data_set=given_result, audit_type='blarg', process=1
                                                   , actor=1, source=1)
@@ -99,6 +98,32 @@ class DataVaultLoaderTests(unittest.TestCase):
 
         return given_result['update_date_time']
 
+    def test_delta_all(self):
+        """
+        Verifying that if given a data set and an incremental with inserts, updates, and deletes, the result will have
+        the correct keys and their delta_status.
+        :return:
+        """
+        original_set = pd.DataFrame({'team': ['Red Sox', 'White Sox', 'Cardinals'],
+                                     'year': [2007, 2007, 2007]})
+
+        incremental_set = pd.DataFrame({'team': ['White Sox', 'Cardinals', 'Blue Jays', 'Cardinals'],
+                                        'year': [2007, 2008, 2018, 2019]})
+
+        original_set = self.sc.createDataFrame(original_set)
+        incremental_set = self.sc.createDataFrame(incremental_set)
+
+        expected_result = pd.DataFrame({'team': ['Blue Jays', 'Red Sox', 'Cardinals'],
+                                        'delta_status': ['I', 'D', 'U']})
+
+        given_result = DataVaultLoader().get_delta(data_set=original_set, incremental_set=incremental_set
+                                                   , key_field='team', filter_field='year', handle_delete=True
+                                                   , handle_update=True)
+
+        given_result = given_result.toPandas()
+
+        return pd.testing.assert_frame_equal(given_result, expected_result)
+
     def test_delta_delete(self):
         """
         Verifying that if a record that was in the original set is not in the delta set,
@@ -118,7 +143,7 @@ class DataVaultLoaderTests(unittest.TestCase):
                                         'delta_status': ['D']})
 
         given_result = DataVaultLoader().get_delta_delete(data_set=original_set, incremental_set=incremental_set
-                                                          , filter_field=['team'])
+                                                          , key_field=['team'])
 
         given_result = given_result.toPandas()
 
@@ -144,6 +169,60 @@ class DataVaultLoaderTests(unittest.TestCase):
 
         given_result = DataVaultLoader().get_delta_insert(data_set=original_set, incremental_set=incremental_set
                                                           , key_field=['team'])
+
+        given_result = given_result.toPandas()
+
+        return pd.testing.assert_frame_equal(given_result, expected_result)
+
+    def test_delta_insert_update(self):
+        """
+        Verifying that if given a data set and an incremental with inserts and updates, the result will have
+        the correct keys and their delta_status. The test purposefully keeps the Red Sox delete to ensure that it is
+        ignored.
+        :return:
+        """
+        original_set = pd.DataFrame({'team': ['Red Sox', 'White Sox', 'Cardinals'],
+                                     'year': [2007, 2007, 2007]})
+
+        incremental_set = pd.DataFrame({'team': ['White Sox', 'Cardinals', 'Blue Jays'],
+                                        'year': [2007, 2008, 2018]})
+
+        original_set = self.sc.createDataFrame(original_set)
+        incremental_set = self.sc.createDataFrame(incremental_set)
+
+        expected_result = pd.DataFrame({'team': ['Blue Jays', 'Cardinals'],
+                                        'delta_status': ['I', 'U']})
+
+        given_result = DataVaultLoader().get_delta(data_set=original_set, incremental_set=incremental_set
+                                                   , key_field='team', filter_field='year', handle_delete=False
+                                                   , handle_update=True)
+
+        given_result = given_result.toPandas()
+
+        return pd.testing.assert_frame_equal(given_result, expected_result)
+
+    def test_delta_insert_delete(self):
+        """
+        Verifying that if given a data set and an incremental with inserts and deletes, the result will have
+        the correct keys and their delta_status. The test purposefully keeps the Cardinals update to ensure that it is
+        ignored.
+        :return:
+        """
+        original_set = pd.DataFrame({'team': ['Red Sox', 'White Sox', 'Cardinals'],
+                                     'year': [2007, 2007, 2007]})
+
+        incremental_set = pd.DataFrame({'team': ['White Sox', 'Cardinals', 'Blue Jays'],
+                                        'year': [2007, 2008, 2018]})
+
+        original_set = self.sc.createDataFrame(original_set)
+        incremental_set = self.sc.createDataFrame(incremental_set)
+
+        expected_result = pd.DataFrame({'team': ['Blue Jays', 'Red Sox'],
+                                        'delta_status': ['I', 'D']})
+
+        given_result = DataVaultLoader().get_delta(data_set=original_set, incremental_set=incremental_set
+                                                   , key_field='team', filter_field='year', handle_delete=True
+                                                   , handle_update=False)
 
         given_result = given_result.toPandas()
 
@@ -254,3 +333,25 @@ class DataVaultLoaderTests(unittest.TestCase):
         modified_date = DataVaultLoader().universal_date_converter(orig_date, original_timezone='America/New_York')
 
         return self.assertEqual(expected_date, modified_date)
+
+    def test_universal_identifier_generator(self):
+        """
+        Verify that when given a specific key, the UUID is created and appended to the data frame.
+        :return:
+        """
+
+        original_set = pd.DataFrame({'team': ['Red Sox'],
+                                     'year': [2007]})
+
+        original_set = self.sc.createDataFrame(original_set)
+
+        expected_result = pd.DataFrame({'team': ['Red Sox'],
+                                        'year': [2007],
+                                        'team_hash': ['ec1927fc85338c38a8d77a861d2ab8f7470720dbaa61f0071c0afbb597bb5ea5b77e0a8eda98f8f34e6469dae8ea26fcd4a7c1a47b38ed90ddb4ba355cc5ff7c']})
+
+        given_result = DataVaultLoader().universal_identifier_generator(data_set=original_set, key_field='team'
+                                                                        , key_name='team_hash')
+
+        given_result = given_result.toPandas()
+
+        return pd.testing.assert_frame_equal(given_result, expected_result)

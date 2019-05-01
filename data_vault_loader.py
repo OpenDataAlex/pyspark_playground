@@ -4,7 +4,6 @@
 from datetime import datetime
 from dateutil import parser
 from functools import reduce
-from pyspark import SparkContext
 import pyspark.sql.functions as F
 from pytz import timezone, utc
 
@@ -83,6 +82,7 @@ class DataVaultLoader:
         """
         Universal Identifier Generator generates UUIDs based on data fields from the data set.  This is the equivalent
         of a validation hash, based on business key(s).
+        :param data_set: The data set the hash is being built from and added to.
         :param key_field:  Business key field(s) to be hashed.
         :type key_field: string or list
         :param key_name: Name of the uuid field
@@ -124,31 +124,31 @@ class DataVaultLoader:
 
         if handle_delete:
             delete_records = self.get_delta_delete(data_set=data_set, incremental_set=incremental_set
-                                                   , filter_field=filter_field)
+                                                   , key_field=key_field)
 
-            delta_data = SparkContext.union(delta_data, delete_records)
+            delta_data = delta_data.union(delete_records)
 
         if handle_update:
             update_records = self.get_delta_update(data_set=data_set, incremental_set=incremental_set
                                                    , key_field=key_field, filter_field=filter_field)
 
-            delta_data = SparkContext.union(delta_data, update_records)
+            delta_data = delta_data.union(update_records)
 
         return delta_data
 
     @staticmethod
-    def get_delta_delete(data_set, incremental_set, filter_field):
+    def get_delta_delete(data_set, incremental_set, key_field):
         """
         Find all deleted records in delta set
         :param data_set: The primary data set.
         :param incremental_set: The primary data set's updated set
-        :param filter_field: The list of fields used for the comparison.
+        :param key_field: The list of fields used for the comparison.
         :return:
         """
 
-        current_set = data_set.select(*filter_field)
+        current_set = data_set.select(*key_field)
 
-        delete_records = current_set.subtract(incremental_set.select(*filter_field))
+        delete_records = current_set.subtract(incremental_set.select(*key_field)).distinct()
         delete_records = delete_records.withColumn('delta_status', F.lit('D'))
 
         current_set.unpersist()
@@ -159,14 +159,15 @@ class DataVaultLoader:
     def get_delta_insert(data_set, incremental_set, key_field):
         """
         Find all new records in delta set
-        :param incremental_set:
+        :param data_set: The original data frame
+        :param incremental_set: The incremental data frame from data_set
         :param key_field: The list of fields used to match records.
         :return:
         """
 
         current_set = data_set.select(*key_field)
 
-        new_records = incremental_set.select(*key_field).subtract(current_set)
+        new_records = incremental_set.select(*key_field).subtract(current_set).distinct()
         new_records = new_records.withColumn('delta_status', F.lit('I'))
 
         current_set.unpersist()
