@@ -3,19 +3,21 @@
 
 from datetime import datetime
 from dateutil import parser
-
+from functools import reduce
 from pyspark import SparkContext
 import pyspark.sql.functions as F
 from pytz import timezone, utc
 
 
-class DataVaultLoader():
+class DataVaultLoader:
 
     @staticmethod
     def audit_field_manager(data_set, audit_type, process, actor, source):
         """
         Add audit metadata to datasets.  This is intended for internal steps (i.e. into staging, into warehouse
         , into presentation, etc.)
+        :param data_set: The Pyspark dataframe
+
         :param audit_type: The type of auditing needing recorded.
         :type audit_type: String   Valid types:  create, update, delete
         :param process: The process identifier processing the data.
@@ -41,7 +43,7 @@ class DataVaultLoader():
             data_set = data_set.withColumn(audit_type + '_source_id', F.lit(source_field))
 
         else:
-            raise Exception('Invalid type provided.  Please use: ' + valid_audit_types)
+            raise Exception('Invalid type provided.  Please use: ' + ", ".join(valid_audit_types))
             exit()
 
         return data_set
@@ -65,7 +67,9 @@ class DataVaultLoader():
         :return converted_date: Converted date string
         """
 
-        orig_date = parser(date, dayfirst=day_first, yearfirst=year_first)
+        time_zone = timezone(time_zone)
+
+        orig_date = parser.parse(date, dayfirst=day_first, yearfirst=year_first)
 
         if original_timezone:
             orig_date = timezone(original_timezone).localize(orig_date)
@@ -93,11 +97,13 @@ class DataVaultLoader():
 
         return data_set
 
-    @staticmethod
-    def get_delta(data_set, incremental_set, key_field, filter_field, handle_update=False, handle_delete=False):
+    def get_delta(self, data_set, incremental_set, key_field, filter_field, handle_update=False, handle_delete=False):
         """
         Provided an incremental data set and filter field(s), find all data that has changed.
+        :param data_set:  The base data set that has an incremental.
+        :type data_set: PySpark data frame
         :param incremental_set: The data set's provided update.
+        :type incremental_set:  PySpark data frame
         :param key_field:  The field(s) used to match records by
         :type key_field: str for one, list for multiple
         :param filter_field: What fields need to be used for comparison?
@@ -114,15 +120,17 @@ class DataVaultLoader():
         if type(key_field) is not list:
             key_field = [key_field]
 
-        delta_data = self.get_delta_insert(incremental_set=incremental_set, key_field=key_field)
+        delta_data = self.get_delta_insert(data_set=data_set, incremental_set=incremental_set, key_field=key_field)
 
         if handle_delete:
-            delete_records = self.get_delta_delete(incremental_set=incremental_set, filter_field=filter_field)
+            delete_records = self.get_delta_delete(data_set=data_set, incremental_set=incremental_set
+                                                   , filter_field=filter_field)
 
             delta_data = SparkContext.union(delta_data, delete_records)
 
         if handle_update:
-            update_records = self.get_delta_update(incremental_set=incremental_set, key_field=key_field, filter_field=filter_field)
+            update_records = self.get_delta_update(data_set=data_set, incremental_set=incremental_set
+                                                   , key_field=key_field, filter_field=filter_field)
 
             delta_data = SparkContext.union(delta_data, update_records)
 
@@ -132,6 +140,7 @@ class DataVaultLoader():
     def get_delta_delete(data_set, incremental_set, filter_field):
         """
         Find all deleted records in delta set
+        :param data_set: The primary data set.
         :param incremental_set: The primary data set's updated set
         :param filter_field: The list of fields used for the comparison.
         :return:
@@ -155,9 +164,9 @@ class DataVaultLoader():
         :return:
         """
 
-        current_set = data_set.select(*filter_field)
+        current_set = data_set.select(*key_field)
 
-        new_records = incremental_set.select(*filter_field).subtract(current_set)
+        new_records = incremental_set.select(*key_field).subtract(current_set)
         new_records = new_records.withColumn('delta_status', F.lit('I'))
 
         current_set.unpersist()
@@ -174,28 +183,28 @@ class DataVaultLoader():
         :param filter_field: The list of fields used for the comparison.  The filter(s) are for NOT matching.
         :return:
         """
-        # TODO: How to handle multiple changes in single set.  Have to handle the change and change back edge case.
-        # Could include create date?
 
         # First need to find all records that are in both the original and delta sets
         original_set = data_set.alias('original_set')
         delta_set = incremental_set.alias('delta_set')
 
-        key_match = F.reduce(
+        key_match = reduce(
             lambda a,b: (a | b),
             [original_set[col] == delta_set[col]
              for col in key_field
              ]
         )
 
-        comparison_query = F.reduce(
+        comparison_query = reduce(
             lambda a, b: (a | b),
-            [original_sat[col] != delta_set[col]
+            [original_set[col] != delta_set[col]
              for col in filter_field
              ]
         )
 
-        update_set = original_set.join(delta_set, on=key_match & comparison_query)
+        update_set = original_set.join(delta_set, on=key_match & comparison_query)\
+                                 .select([F.col('delta_set.'+xx) for xx in key_field])\
+                                 .distinct()
 
         update_set = update_set.withColumn('delta_status', F.lit('U'))
 

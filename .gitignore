@@ -158,6 +158,10 @@ venv.bak/
 # mypy
 .mypy_cache/
 
-# Spark metastore
+# Spark metastoreccccccbtjkitcijrjbtdgetrltnh
 metastore_db
 spark-warehouse
+.idea/misc.xml
+.idea/modules.xml
+.idea/pyspark_playground.iml
+Pipfile.lock
