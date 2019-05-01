@@ -76,7 +76,7 @@ class DataVaultLoaderTests(unittest.TestCase):
 
         given_result = self.sc.createDataFrame(given_result)
 
-        with self.assertRaises(System) as context:
+        with self.assertRaises(Exception) as context:
 
             DataVaultLoader().audit_field_manager(data_set=given_result, audit_type='blarg', process=1
                                                   , actor=1, source=1)
