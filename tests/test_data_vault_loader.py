@@ -17,12 +17,17 @@ from data_vault_loader import DataVaultLoader
 
 
 class DataVaultLoaderTests(unittest.TestCase):
-    # TODO:  Write unit test for validating audit field values.
+    # TODO:  Write unit test for validating audit fields without passing the audit date time.
+
+    @classmethod
+    def suppress_py4j_logging(cls):
+        logger = logging.getLogger('py4j')
+        logger.setLevel(logging.WARN)
 
     @classmethod
     def setUpClass(cls):
-
-        cls.sc =  SparkSession.builder.master("local[2]")\
+        cls.suppress_py4j_logging()
+        cls.sc = SparkSession.builder.master("local[2]")\
                             .appName(cls.__name__)\
                             .config("spark.executor.memory", "6gb")\
                             .enableHiveSupport()\
@@ -33,7 +38,6 @@ class DataVaultLoaderTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        print("Ending testing of " + cls.__name__)
         cls.sc.stop()
 
     def test_audit_fields_create(self):
@@ -41,30 +45,48 @@ class DataVaultLoaderTests(unittest.TestCase):
         Verifying that the audit columns are being created for the 'create' option
         :return:
         """
+        date_field = datetime.datetime.utcnow()
         given_result = pd.DataFrame({'team': ['Red Sox', 'White Sox', 'Cardinals'],
-                                        'year': [2007, 2007, 2007]})
+                                     'year': [2007, 2007, 2007]})
 
         given_result = self.sc.createDataFrame(given_result)
 
-        given_result = DataVaultLoader().audit_field_manager(data_set=given_result, audit_type='create', process=1
-                                                             , actor=1, source=1)
+        expected_result = pd.DataFrame({'team': ['Red Sox', 'White Sox', 'Cardinals'],
+                                        'year': [2007, 2007, 2007],
+                                        'create_actor_id': [1, 1, 1],
+                                        'create_date_time': [date_field, date_field, date_field],
+                                        'create_process_id': [1, 1, 1],
+                                        'create_source_id': [1, 1, 1]})
 
-        return given_result['create_date_time']
+        given_result = DataVaultLoader().audit_field_manager(data_set=given_result, audit_type='create', process=1
+                                                             , actor=1, source=1, date=date_field)
+        given_result = given_result.toPandas()
+
+        return pd.testing.assert_frame_equal(given_result, expected_result, check_dtype=False)
 
     def test_audit_fields_delete_type(self):
         """
         Verifying that the audit columns are being created for the 'delete' option
         :return:
         """
+        date_field = datetime.datetime.utcnow()
         given_result = pd.DataFrame({'team': ['Red Sox', 'White Sox', 'Cardinals'],
                                      'year': [2007, 2007, 2007]})
 
         given_result = self.sc.createDataFrame(given_result)
 
-        given_result = DataVaultLoader().audit_field_manager(data_set=given_result, audit_type='delete', process=1
-                                                             , actor=1, source=1)
+        expected_result = pd.DataFrame({'team': ['Red Sox', 'White Sox', 'Cardinals'],
+                                        'year': [2007, 2007, 2007],
+                                        'delete_actor_id': [1, 1, 1],
+                                        'delete_date_time': [date_field, date_field, date_field],
+                                        'delete_process_id': [1, 1, 1],
+                                        'delete_source_id': [1, 1, 1]})
 
-        return given_result['delete_date_time']
+        given_result = DataVaultLoader().audit_field_manager(data_set=given_result, audit_type='delete', process=1
+                                                             , actor=1, source=1, date=date_field)
+        given_result = given_result.toPandas()
+
+        return pd.testing.assert_frame_equal(given_result, expected_result, check_dtype=False)
 
     def test_audit_fields_invalid_type(self):
         """
@@ -88,15 +110,24 @@ class DataVaultLoaderTests(unittest.TestCase):
         Verifying that the audit columns are being created for the 'update' option
         :return:
         """
+        date_field = datetime.datetime.utcnow()
         given_result = pd.DataFrame({'team': ['Red Sox', 'White Sox', 'Cardinals'],
                                      'year': [2007, 2007, 2007]})
 
         given_result = self.sc.createDataFrame(given_result)
 
-        given_result = DataVaultLoader().audit_field_manager(data_set=given_result, audit_type='update', process=1
-                                                             , actor=1, source=1)
+        expected_result = pd.DataFrame({'team': ['Red Sox', 'White Sox', 'Cardinals'],
+                                        'year': [2007, 2007, 2007],
+                                        'update_actor_id': [1, 1, 1],
+                                        'update_date_time': [date_field, date_field, date_field],
+                                        'update_process_id': [1, 1, 1],
+                                        'update_source_id': [1, 1, 1]})
 
-        return given_result['update_date_time']
+        given_result = DataVaultLoader().audit_field_manager(data_set=given_result, audit_type='update', process=1
+                                                             , actor=1, source=1, date=date_field)
+        given_result = given_result.toPandas()
+
+        return pd.testing.assert_frame_equal(given_result, expected_result, check_dtype=False)
 
     def test_delta_all(self):
         """
@@ -347,7 +378,9 @@ class DataVaultLoaderTests(unittest.TestCase):
 
         expected_result = pd.DataFrame({'team': ['Red Sox'],
                                         'year': [2007],
-                                        'team_hash': ['ec1927fc85338c38a8d77a861d2ab8f7470720dbaa61f0071c0afbb597bb5ea5b77e0a8eda98f8f34e6469dae8ea26fcd4a7c1a47b38ed90ddb4ba355cc5ff7c']})
+                                        'team_hash': ['ec1927fc85338c38a8d77a861d2ab8f7470720db'
+                                                      'aa61f0071c0afbb597bb5ea5b77e0a8eda98f8f3'
+                                                      '4e6469dae8ea26fcd4a7c1a47b38ed90ddb4ba355cc5ff7c']})
 
         given_result = DataVaultLoader().universal_identifier_generator(data_set=original_set, key_field='team'
                                                                         , key_name='team_hash')

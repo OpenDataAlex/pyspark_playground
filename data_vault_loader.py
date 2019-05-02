@@ -11,7 +11,7 @@ from pytz import timezone, utc
 class DataVaultLoader:
 
     @staticmethod
-    def audit_field_manager(data_set, audit_type, process, actor, source):
+    def audit_field_manager(data_set, audit_type, process, actor, source, date=None):
         """
         Add audit metadata to datasets.  This is intended for internal steps (i.e. into staging, into warehouse
         , into presentation, etc.)
@@ -25,13 +25,19 @@ class DataVaultLoader:
         :type actor: String
         :param source:  The source identifier where the data is coming from.
         :type source: String
+        :param date: A provided audit timestamp.  If not set, will use the system's current timestamp in UTC.
+        :type date: datetime
         :return audit_fields: Dictionary of audit fields.
         """
-        valid_audit_types = ['create', 'update', 'delete']
+        valid_audit_types =  ['create', 'update', 'delete']
         audit_type = audit_type.lower()
 
         actor_field = actor
-        date_field = datetime.now(tz=utc)
+        if date is None:
+            date_field = datetime.utcnow()
+        else:
+            date_field = date
+
         process_field = process
         source_field = source
 
